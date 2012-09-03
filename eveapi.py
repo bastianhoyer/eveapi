@@ -206,6 +206,18 @@ def EVEAPIConnection(url="api.eveonline.com", cacheHandler=None, proxy=None, pro
 	#          will only be called if you returned None in the retrieve() for
 	#          this object.
 	#
+	# autocast_func - plain function that will be used to cast XML values to the
+	#                 most probable type. The function must accept 2 parameters
+	#                 and return a casted value. It shouldn't raise exceptions.
+	#
+	#      example:
+	#
+	#         def my_autocast(key, value):
+	#             ....
+	#             blah blah
+	#             ....
+	#             return casted_value
+	#
 
 	if not url.startswith("http"):
 		url = "https://" + url
