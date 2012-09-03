@@ -25,6 +25,11 @@
 # OTHER DEALINGS IN THE SOFTWARE
 #
 #-----------------------------------------------------------------------------
+# Version: 1.2.8 - 3 September 2012
+# - Added a "autocast_func" parameter to the EVEAPIConnection class.
+#   If this parameter is not None, it will be used in replacement
+#   of the default "_autocast" function.
+#
 # Version: 1.2.7 - 3 September 2012
 # - Added get() method to Row object.
 #
@@ -164,7 +169,7 @@ class ServerError(Error):
 	pass
 
 
-def EVEAPIConnection(url="api.eveonline.com", cacheHandler=None, proxy=None, proxySSL=False):
+def EVEAPIConnection(url="api.eveonline.com", cacheHandler=None, proxy=None, proxySSL=False, autocast_func=None):
 	# Creates an API object through which you can call remote functions.
 	#
 	# The following optional arguments may be provided:
@@ -207,7 +212,7 @@ def EVEAPIConnection(url="api.eveonline.com", cacheHandler=None, proxy=None, pro
 	p = urlparse.urlparse(url, "https")
 	if p.path and p.path[-1] == "/":
 		p.path = p.path[:-1]
-	ctx = _RootContext(None, p.path, {}, {})
+	ctx = _RootContext(None, p.path, {}, {}, autocast_func)
 	ctx._handler = cacheHandler
 	ctx._scheme = p.scheme
 	ctx._host = p.netloc
@@ -216,22 +221,22 @@ def EVEAPIConnection(url="api.eveonline.com", cacheHandler=None, proxy=None, pro
 	return ctx
 
 
-def ParseXML(file_or_string):
+def ParseXML(file_or_string, autocast=None):
 	try:
-		return _ParseXML(file_or_string, False, None)
+		return _ParseXML(file_or_string, False, None, autocast=autocast)
 	except TypeError:
 		raise TypeError("XML data must be provided as string or file-like object")
 
 
-def _ParseXML(response, fromContext, storeFunc):
+def _ParseXML(response, fromContext, storeFunc, autocast=None):
 	# pre/post-process XML or Element data
 
 	if fromContext and isinstance(response, Element):
 		obj = response
 	elif type(response) in (str, unicode):
-		obj = _Parser().Parse(response, False)
+		obj = _Parser(autocast).Parse(response, False)
 	elif hasattr(response, "read"):
-		obj = _Parser().Parse(response, True)
+		obj = _Parser(autocast).Parse(response, True)
 	else:
 		raise TypeError("retrieve method must return None, string, file-like object or an Element instance")
 
@@ -272,9 +277,10 @@ _unspecified = []
 
 class _Context(object):
 
-	def __init__(self, root, path, parentDict, newKeywords=None):
+	def __init__(self, root, path, parentDict, newKeywords=None, autocast=None):
 		self._root = root or self
 		self._path = path
+		self.autocast = autocast
 		if newKeywords:
 			if parentDict:
 				self.parameters = parentDict.copy()
@@ -295,7 +301,7 @@ class _Context(object):
 
 	def __getattr__(self, this):
 		# perform arcane attribute majick trick
-		return _Context(self._root, self._path + "/" + this, self.parameters)
+		return _Context(self._root, self._path + "/" + this, self.parameters, autocast=self.autocast)
 
 	def __call__(self, **kw):
 		if kw:
@@ -317,18 +323,18 @@ class _AuthContext(_Context):
 		# returns a copy of this connection object but for every call made
 		# through it, it will add the folder "/char" to the url, and the
 		# characterID to the parameters passed.
-		return _Context(self._root, self._path + "/char", self.parameters, {"characterID":characterID})
+		return _Context(self._root, self._path + "/char", self.parameters, {"characterID":characterID}, autocast=self.autocast)
 
 	def corporation(self, characterID):
 		# same as character except for the folder "/corp"
-		return _Context(self._root, self._path + "/corp", self.parameters, {"characterID":characterID})
+		return _Context(self._root, self._path + "/corp", self.parameters, {"characterID":characterID}, autocast=self.autocast)
 
 
 class _RootContext(_Context):
 
 	def auth(self, **kw):
 		if len(kw) == 2 and (("keyID" in kw and "vCode" in kw) or ("userID" in kw and "apiKey" in kw)):
-			return _AuthContext(self._root, self._path, self.parameters, kw)
+			return _AuthContext(self._root, self._path, self.parameters, kw, autocast=self.autocast)
 		raise ValueError("Must specify keyID and vCode")
 
 	def setcachehandler(self, handler):
@@ -388,7 +394,7 @@ class _RootContext(_Context):
 		if retrieve_fallback:
 			# implementor is handling fallbacks...
 			try:
-				return _ParseXML(response, True, store and (lambda obj: cache.store(self._host, path, kw, response, obj)))
+				return _ParseXML(response, True, store and (lambda obj: cache.store(self._host, path, kw, response, obj)), autocast=self.autocast)
 			except Error, e:
 				response = retrieve_fallback(self._host, path, kw, reason=e)
 				if response is not None:
@@ -396,7 +402,7 @@ class _RootContext(_Context):
 				raise
 		else:
 			# implementor is not handling fallbacks...
-			return _ParseXML(response, True, store and (lambda obj: cache.store(self._host, path, kw, response, obj)))
+			return _ParseXML(response, True, store and (lambda obj: cache.store(self._host, path, kw, response, obj)), autocast=self.autocast)
 
 #-----------------------------------------------------------------------------
 # XML Parser
@@ -430,7 +436,13 @@ def _autocast(key, value):
 
 
 class _Parser(object):
-
+	
+	def __init__(self, autocast=None):
+		self.autocast = autocast or _autocast
+	
+	def cast(self, key, value):
+		return apply(self.autocast, (key, value))
+	
 	def Parse(self, data, isStream=False):
 		self.container = self.root = None
 		self._cdata = False
@@ -524,7 +536,7 @@ class _Parser(object):
 				row_idx = 0; hdr_idx = 0; numAttr*=2
 				for col in self.container._cols:
 					if col == attributes[row_idx]:
-						fixed.append(_autocast(col, attributes[row_idx+1]))
+						fixed.append(self.cast(col, attributes[row_idx+1]))
 						row_idx += 2
 					else:
 						fixed.append(None)
@@ -534,7 +546,7 @@ class _Parser(object):
 				if not self.container._cols or (numAttr > numCols):
 					# the row data contains more attributes than were defined.
 					self.container._cols = attributes[0::2]
-				self.container.append([_autocast(attributes[i], attributes[i+1]) for i in xrange(0, len(attributes), 2)])
+				self.container.append([self.cast(attributes[i], attributes[i+1]) for i in xrange(0, len(attributes), 2)])
 			# </hack>
 
 			this._isrow = True
@@ -557,7 +569,7 @@ class _Parser(object):
 				return
 
 		this = self.container
-		data = _autocast(this._name, data)
+		data = self.cast(this._name, data)
 
 		if this._isrow:
 			# sigh. anonymous data inside rows makes Entity cry.
@@ -637,7 +649,7 @@ class _Parser(object):
 			# multiples of some tag or attribute. Code below handles this case.
 			elif isinstance(sibling, Rowset):
 				# its doppelganger is a rowset, append this as a row to that.
-				row = [_autocast(attributes[i], attributes[i+1]) for i in xrange(0, len(attributes), 2)]
+				row = [self.cast(attributes[i], attributes[i+1]) for i in xrange(0, len(attributes), 2)]
 				row.extend([getattr(this, col) for col in attributes2])
 				sibling.append(row)
 			elif isinstance(sibling, Element):
@@ -646,7 +658,7 @@ class _Parser(object):
 				# into a Rowset, adding the sibling element and this one.
 				rs = Rowset()
 				rs.__catch = rs._name = this._name
-				row = [_autocast(attributes[i], attributes[i+1]) for i in xrange(0, len(attributes), 2)]+[getattr(this, col) for col in attributes2]
+				row = [self.cast(attributes[i], attributes[i+1]) for i in xrange(0, len(attributes), 2)]+[getattr(this, col) for col in attributes2]
 				rs.append(row)
 				row = [getattr(sibling, attributes[i]) for i in xrange(0, len(attributes), 2)]+[getattr(sibling, col) for col in attributes2]
 				rs.append(row)
@@ -659,7 +671,7 @@ class _Parser(object):
 
 		# Now fix up the attributes and be done with it.
 		for i in xrange(0, len(attributes), 2):
-			this.__dict__[attributes[i]] = _autocast(attributes[i], attributes[i+1])
+			this.__dict__[attributes[i]] = self.cast(attributes[i], attributes[i+1])
 
 		return
 
