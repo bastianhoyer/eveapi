@@ -545,7 +545,7 @@ class _Parser(object):
 				row_idx = 0; hdr_idx = 0; numAttr*=2
 				for col in self.container._cols:
 					if col == attributes[row_idx]:
-						fixed.append(self.autocast.__call__(col, attributes[row_idx+1]))
+						fixed.append(self.autocast(col, attributes[row_idx+1]))
 						row_idx += 2
 					else:
 						fixed.append(None)
@@ -555,7 +555,7 @@ class _Parser(object):
 				if not self.container._cols or (numAttr > numCols):
 					# the row data contains more attributes than were defined.
 					self.container._cols = attributes[0::2]
-				self.container.append([self.autocast.__call__(attributes[i], attributes[i+1]) for i in xrange(0, len(attributes), 2)])
+				self.container.append([self.autocast(attributes[i], attributes[i+1]) for i in xrange(0, len(attributes), 2)])
 			# </hack>
 
 			this._isrow = True
@@ -578,7 +578,7 @@ class _Parser(object):
 				return
 
 		this = self.container
-		data = self.autocast.__call__(this._name, data)
+		data = self.autocast(this._name, data)
 
 		if this._isrow:
 			# sigh. anonymous data inside rows makes Entity cry.
@@ -658,7 +658,7 @@ class _Parser(object):
 			# multiples of some tag or attribute. Code below handles this case.
 			elif isinstance(sibling, Rowset):
 				# its doppelganger is a rowset, append this as a row to that.
-				row = [self.autocast.__call__(attributes[i], attributes[i+1]) for i in xrange(0, len(attributes), 2)]
+				row = [self.autocast(attributes[i], attributes[i+1]) for i in xrange(0, len(attributes), 2)]
 				row.extend([getattr(this, col) for col in attributes2])
 				sibling.append(row)
 			elif isinstance(sibling, Element):
@@ -667,7 +667,7 @@ class _Parser(object):
 				# into a Rowset, adding the sibling element and this one.
 				rs = Rowset()
 				rs.__catch = rs._name = this._name
-				row = [self.autocast.__call__(attributes[i], attributes[i+1]) for i in xrange(0, len(attributes), 2)]+[getattr(this, col) for col in attributes2]
+				row = [self.autocast(attributes[i], attributes[i+1]) for i in xrange(0, len(attributes), 2)]+[getattr(this, col) for col in attributes2]
 				rs.append(row)
 				row = [getattr(sibling, attributes[i]) for i in xrange(0, len(attributes), 2)]+[getattr(sibling, col) for col in attributes2]
 				rs.append(row)
@@ -680,7 +680,7 @@ class _Parser(object):
 
 		# Now fix up the attributes and be done with it.
 		for i in xrange(0, len(attributes), 2):
-			this.__dict__[attributes[i]] = self.autocast.__call__(attributes[i], attributes[i+1])
+			this.__dict__[attributes[i]] = self.autocast(attributes[i], attributes[i+1])
 
 		return
 
