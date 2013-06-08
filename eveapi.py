@@ -257,7 +257,7 @@ def _ParseXML(response, fromContext, storeFunc):
 	# make metadata available to caller somehow
 	result._meta = obj
 
-	return result
+	return obj
 
 
 	
